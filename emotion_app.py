@@ -5,12 +5,9 @@ import tensorflow as tf
 import json
 from PIL import Image
 
-# Load emotion labels from classes.json
+# Load emotion labels from classes.json (direct list)
 with open("class_names.json", "r") as f:
-    class_names = json.load(f)
-
-# Get the emotion labels from the JSON file
-emotion_labels = class_names.get("emotion_labels", [])
+    emotion_labels = json.load(f)
 
 # Load the emotion detection model
 model = tf.keras.models.load_model("emotion_detector_model.h5")
