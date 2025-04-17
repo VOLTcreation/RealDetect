@@ -1,12 +1,12 @@
 import streamlit as st
-from PIL import Image
+import cv2
 import numpy as np
 import tensorflow as tf
-import cv2
 import json
+from PIL import Image
 
 # Load emotion labels from classes.json
-with open("class_names.json", "r") as f:
+with open("emotion_detection\class_names.json", "r") as f:
     class_data = json.load(f)
 
 # Get the emotion labels from the JSON file
@@ -16,25 +16,21 @@ emotion_labels = class_data.get("emotion_labels", [])
 model = tf.keras.models.load_model("emotion_detector_model.h5")
 
 # Function to preprocess and predict emotion from image
-def preprocess_and_predict(image: Image.Image) -> tuple:
-    # Convert the image to numpy array
-    img_array = np.array(image.convert('RGB'))  # Convert image to RGB format
-    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)  # Convert to BGR for OpenCV compatibility
-    gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
-
-    # Detect face using OpenCV's Haar cascades (for real-time emotion detection)
+def preprocess_and_predict(image: np.ndarray) -> tuple:
+    img_array = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    faces = face_cascade.detectMultiScale(img_array, scaleFactor=1.3, minNeighbors=5)
 
     if len(faces) == 0:
         return "No face detected", 0
-    
+
+    # Focus on the first detected face
     x, y, w, h = faces[0]
-    face_region = gray[y:y+h, x:x+w]
-    face_region = cv2.resize(face_region, (48, 48))  # Resize to fit model input size
+    face_region = img_array[y:y+h, x:x+w]
+    face_region = cv2.resize(face_region, (48, 48))  # Resize to model input size
     face_region = face_region.astype('float32') / 255  # Normalize the image
-    face_region = np.expand_dims(face_region, axis=-1) 
-    face_region = np.expand_dims(face_region, axis=0)
+    face_region = np.expand_dims(face_region, axis=-1)  # Add the channel dimension
+    face_region = np.expand_dims(face_region, axis=0)  # Add the batch dimension
 
     # Predict the emotion
     emotion_prediction = model.predict(face_region)
@@ -44,29 +40,37 @@ def preprocess_and_predict(image: Image.Image) -> tuple:
     return emotion_labels[predicted_class], confidence
 
 # Streamlit UI Setup
-st.title("Emotion Detector with Keras Model")
+st.title("Real-Time Emotion Detection")
 
-# Input options
-input_method = st.radio("Choose Input Method", ("Take a Photo", "Upload an Image"), horizontal=True)
+# Set up webcam capture
+camera = st.camera_input("Capture video for emotion detection")
 
-image_obj = None
-if input_method == "Take a Photo":
-    cam_img = st.camera_input("Capture image")
-    if cam_img:
-        image_obj = Image.open(cam_img)
+# Initialize a placeholder for real-time emotion detection results
+stframe = st.empty()
 
-elif input_method == "Upload an Image":
-    uploaded_img = st.file_uploader("Upload an image for emotion detection", type=["jpg", "jpeg", "png"])
-    if uploaded_img:
-        image_obj = Image.open(uploaded_img)
+if camera:
+    video_capture = cv2.VideoCapture(camera)
+    
+    while True:
+        ret, frame = video_capture.read()
 
-if image_obj:
-    st.image(image_obj, caption="📷 Your Image", use_container_width=True)
+        if not ret:
+            st.warning("Failed to capture video frame.")
+            break
 
-    with st.spinner("🔍 Detecting emotion..."):
-        emotion, confidence = preprocess_and_predict(image_obj)
+        # Process frame and predict emotion
+        emotion, confidence = preprocess_and_predict(frame)
 
-    st.success(f"Detected Emotion: **{emotion}** with **{confidence:.2f}%** confidence")
+        # Display the image with predicted emotion
+        cv2.putText(frame, f"{emotion}: {confidence:.2f}%", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.imshow("Real-Time Emotion Detection", frame)
 
-    if emotion == 'No face detected':
-        st.warning("No face detected in the image. Please try another one.")
+        # Show frame in Streamlit
+        stframe.image(frame, channels="BGR", use_column_width=True)
+
+        # Escape from the loop if the user presses 'q' on the webcam window
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    video_capture.release()
+    cv2.destroyAllWindows()
