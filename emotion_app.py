@@ -6,7 +6,7 @@ import cv2
 import json
 
 # Load emotion labels from classes.json
-with open("classes.json", "r") as f:
+with open("class_names.json", "r") as f:
     class_data = json.load(f)
 
 # Get the emotion labels from the JSON file
